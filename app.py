@@ -14,9 +14,9 @@ st.set_page_config(
 )
 
 st.title("₿ 비트코인 온체인 바닥 대시보드")
-st.caption("공간 조건: 현물가 < LTH 실현가  |  모멘텀 조건: STH-SOPR < 1.0 이후 1.0 회복")
+st.caption("현물가 < LTH 실현가(저평가) · STH-SOPR < 1.0 이후 1.0 회복(모멘텀) 교차 포착")
 
-# 2. 사이드바: 토큰, 기간 선택, 수동 최신화 입력
+# 2. 사이드바: 토큰, 기간 선택, 바로가기 링크 및 수동 최신화 입력
 default_token = st.secrets.get("BGEOMETRICS_TOKEN", "") if hasattr(st, "secrets") else ""
 
 with st.sidebar:
@@ -30,14 +30,18 @@ with st.sidebar:
     )
 
     st.divider()
-    st.header("✍️ 수동 최신화 입력 (선택)")
-    st.caption("API 지연 시 최신 수치를 입력하면 오늘 기준으로 즉시 반영됩니다.")
+    st.header("🔗 지표 확인 및 수동 입력")
+    st.caption("페이지에서 최신 수치를 확인한 뒤 아래에 입력하세요.")
+
+    st.link_button("📈 Bitbo 온체인 차트 열기", "https://charts.bitbo.io/", use_container_width=True)
+    st.link_button("📊 LTH Supply 차트 바로가기", "https://charts.bitbo.io/long-term-holder-supply/", use_container_width=True)
+
     use_manual = st.checkbox("수동 최신값 적용하기", value=False)
     manual_lth = st.number_input("최신 LTH 실현가 ($)", min_value=0.0, value=0.0, step=100.0)
     manual_sopr = st.number_input("최신 STH-SOPR", min_value=0.0, max_value=5.0, value=0.0, step=0.005, format="%.3f")
 
     st.divider()
-    st.caption("API 호출 제한 보호를 위해 시계열 데이터는 6시간마다 캐싱됩니다.")
+    st.caption("시계열 데이터는 무료 API 호출 제한 보호를 위해 6시간마다 캐싱됩니다.")
 
 # 3. 실시간 BTC 현물가 조회
 @st.cache_data(ttl=60)
@@ -120,7 +124,6 @@ combined["lth_rp_plot"] = combined["lth_rp"].ffill()
 
 # 7. 수동 최신화 입력 반영 (오늘 날짜 행 추가/갱신)
 today_utc = pd.Timestamp(datetime.now(timezone.utc).date())
-manual_points = []
 
 if use_manual:
     latest_known_btc = live_btc if live_btc else combined["btc_price"].dropna().iloc[-1]
@@ -156,20 +159,19 @@ sopr_lag_days = max(0, (today_utc - last_sopr_date).days)
 current_btc = live_btc if live_btc else combined["btc_price"].dropna().iloc[-1]
 gap_pct = ((current_btc - latest_lth_val) / latest_lth_val) * 100
 
-# 9. 통합 신호등 판정 로직 (0: 일반/관망, 1: 저평가 진입/주의, 2: 바닥 변곡 포착)
+# 9. 통합 신호등 판정 로직 (2: 초록 변곡 포착, 1: 노랑 저평가 진입, 0: 회색 대기)
 def compute_signal_level(price, lth, sopr, prev_sopr):
     if pd.isna(price) or pd.isna(lth):
         return 0
     is_undervalued = price < lth
     is_recovering = (not pd.isna(sopr)) and (sopr >= 1.0) and ((pd.isna(prev_sopr)) or (prev_sopr < 1.0))
     if is_undervalued and is_recovering:
-        return 2  # 초록 (강력 바닥 변곡점)
+        return 2
     elif is_undervalued:
-        return 1  # 노랑 (저평가 공간 진입)
+        return 1
     else:
-        return 0  # 회색/일반
+        return 0
 
-# 시계열 전체 신호등 값 계산
 combined["sopr_filled_for_signal"] = combined["sth_sopr"].ffill()
 combined["prev_sopr_for_signal"] = combined["sopr_filled_for_signal"].shift(1)
 combined["signal_level"] = [
@@ -181,6 +183,11 @@ combined["signal_level"] = [
         combined["prev_sopr_for_signal"]
     )
 ]
+combined["signal_text"] = combined["signal_level"].map({
+    2: "🟢 변곡 포착",
+    1: "🟡 저평가 진입",
+    0: "⚪ 대기"
+})
 
 current_signal = compute_signal_level(current_btc, latest_lth_val, latest_sopr_val, prev_sopr_val)
 
@@ -192,7 +199,7 @@ with c2:
     st.metric(
         "LTH 실현 가격",
         f"${latest_lth_val:,.0f}",
-        f"{gap_pct:+.1f}% (기준: {last_lth_date.strftime('%m/%d')}, D-{lth_lag_days})",
+        f"{gap_pct:+.1f}% ({last_lth_date.strftime('%m/%d')}, D-{lth_lag_days})",
         delta_color="inverse" if current_btc < latest_lth_val else "normal"
     )
 with c3:
@@ -211,9 +218,9 @@ with c4:
 
 if sopr_lag_days >= 3 and not (use_manual and manual_sopr > 0):
     st.warning(
-        f"⚠️ **지표 업데이트 시차 안내:** LTH 실현가는 `{last_lth_date.strftime('%Y-%m-%d')}` 기준이나, "
-        f"STH-SOPR은 `{last_sopr_date.strftime('%Y-%m-%d')}`({sopr_lag_days}일 전) 데이터까지 반영되어 있습니다. "
-        f"최신 값이 있다면 왼쪽 사이드바 **수동 최신화 입력**을 활용하세요."
+        f"⚠️ **시차 안내:** LTH 실현가는 `{last_lth_date.strftime('%Y-%m-%d')}` 기준이나 "
+        f"STH-SOPR은 `{last_sopr_date.strftime('%Y-%m-%d')}`({sopr_lag_days}일 전)까지 반영되어 있습니다. "
+        f"사이드바 링크로 확인 후 **수동 최신화 입력**을 활용하세요."
     )
 
 # 11. 기간 필터 적용
@@ -228,15 +235,11 @@ else:
 
 view_df = combined[combined["date"] >= cutoff].copy().reset_index(drop=True)
 
-# 12. 3단 통합 시각화 (상단: 가격 vs LTH 실현가 + 저평가 음영 / 중단: STH-SOPR + 1.0 영역 구분 / 하단: 통합 신호등)
+# 12. 3단 통합 시각화
 fig = make_subplots(
     rows=3, cols=1, shared_xaxes=True,
-    vertical_spacing=0.06, row_heights=[0.50, 0.30, 0.20],
-    subplot_titles=(
-        "1. BTC 시장가 vs LTH 실현가 (녹색 음영 = 현물가 < LTH 실현가)",
-        "2. STH-SOPR (1.0 이상 초록 영역 / 1.0 미만 빨강 영역)",
-        "3. 통합 신호등 타임라인 (2=바닥변곡 / 1=저평가진입 / 0=대기)"
-    )
+    vertical_spacing=0.06, row_heights=[0.52, 0.30, 0.18],
+    subplot_titles=("BTC / LTH 실현가", "STH-SOPR", "통합 신호등")
 )
 
 # --- 1단: BTC 가격 & LTH 실현가 ---
@@ -250,59 +253,88 @@ fig.add_trace(go.Scatter(
     name="LTH 실현가", line=dict(color="#00D2FF", width=2)
 ), row=1, col=1)
 
-# 저평가 구간(현물가 < LTH 실현가) 세그먼트별 음영 표시
+# 저평가 구간(현물가 < LTH 실현가) 음영 표시
 under_mask = view_df["btc_price"] < view_df["lth_rp_plot"]
 seg_id = (under_mask != under_mask.shift()).cumsum()
+first_under = True
 for _, grp in view_df[under_mask].groupby(seg_id):
     if len(grp) >= 1:
         x_poly = list(grp["date"]) + list(grp["date"])[::-1]
         y_poly = list(grp["btc_price"]) + list(grp["lth_rp_plot"])[::-1]
         fig.add_trace(go.Scatter(
             x=x_poly, y=y_poly,
-            fill="toself", fillcolor="rgba(0, 255, 136, 0.25)",
+            fill="toself", fillcolor="rgba(34, 197, 94, 0.24)",
             line=dict(color="rgba(0,0,0,0)"),
-            showlegend=False, hoverinfo="skip"
+            name="저평가(<LTH)", showlegend=first_under, hoverinfo="skip"
         ), row=1, col=1)
+        first_under = False
 
-# --- 2단: STH-SOPR & 1.0 기준 상/하단 영역 구분 ---
-sopr_min_y = min(0.6, float(view_df["sth_sopr"].min()) * 0.95) if view_df["sth_sopr"].notna().any() else 0.6
-sopr_max_y = max(1.4, float(view_df["sth_sopr"].max()) * 1.05) if view_df["sth_sopr"].notna().any() else 1.4
+# --- 2단: STH-SOPR (단일 라인 + 1.0 기준선 + 1.0 미만 구간 연한 채우기) ---
+sopr_min_y = min(0.65, float(view_df["sth_sopr"].min()) * 0.95) if view_df["sth_sopr"].notna().any() else 0.65
+sopr_max_y = max(1.35, float(view_df["sth_sopr"].max()) * 1.05) if view_df["sth_sopr"].notna().any() else 1.35
 
-fig.add_hrect(
-    y0=1.0, y1=sopr_max_y,
-    fillcolor="rgba(34, 197, 94, 0.10)", line_width=0, row=2, col=1
-)
-fig.add_hrect(
-    y0=sopr_min_y, y1=1.0,
-    fillcolor="rgba(239, 68, 68, 0.10)", line_width=0, row=2, col=1
-)
-fig.add_hline(y=1.0, line_dash="dash", line_color="#EF4444", row=2, col=1)
+sopr_below_1 = np.where(view_df["sth_sopr"] < 1.0, view_df["sth_sopr"], 1.0)
+fig.add_trace(go.Scatter(
+    x=view_df["date"], y=sopr_below_1,
+    name="손실매도(<1.0)",
+    line=dict(color="rgba(0,0,0,0)"),
+    fill="tozeroy" if False else None,
+    fillcolor="rgba(239, 68, 68, 0.12)",
+    hoverinfo="skip", showlegend=False
+), row=2, col=1)
+
+# 1.0 기준선과 STH-SOPR 간 1.0 이하 구간 채우기
+fig.add_trace(go.Scatter(
+    x=view_df["date"], y=np.ones(len(view_df)),
+    line=dict(color="rgba(0,0,0,0)"),
+    hoverinfo="skip", showlegend=False
+), row=2, col=1)
 
 fig.add_trace(go.Scatter(
     x=view_df["date"], y=view_df["sth_sopr"],
-    name="STH-SOPR", line=dict(color="#C084FC", width=1.8),
+    name="STH-SOPR",
+    line=dict(color="#C084FC", width=1.9),
+    fill="tonexty",
+    fillcolor="rgba(239, 68, 68, 0.10)",
     connectgaps=False
 ), row=2, col=1)
 
-# --- 3단: 통합 신호등 타임라인 ---
-color_map = {2: "#22C55E", 1: "#EAB308", 0: "#6B7280"}
-bar_colors = [color_map.get(int(v), "#6B7280") for v in view_df["signal_level"]]
+fig.add_hline(y=1.0, line_dash="dash", line_color="#9CA3AF", line_width=1.2, row=2, col=1)
+
+# --- 3단: 통합 신호등 (고정 높이 컬러 블록으로 가시성 강화) ---
+color_map = {2: "#22C55E", 1: "#EAB308", 0: "#4B5563"}
+bar_colors = [color_map.get(int(v), "#4B5563") for v in view_df["signal_level"]]
 
 fig.add_trace(go.Bar(
-    x=view_df["date"], y=view_df["signal_level"],
-    name="통합 신호등", marker_color=bar_colors
+    x=view_df["date"],
+    y=np.ones(len(view_df)),
+    name="신호등",
+    marker=dict(color=bar_colors, line=dict(width=0)),
+    customdata=view_df["signal_text"],
+    hovertemplate="%{customdata}<extra></extra>"
 ), row=3, col=1)
 
+# 3단 통합 수직 가이드라인(버티컬 점선) 설정
+spike_style = dict(
+    showspikes=True,
+    spikemode="across",
+    spikesnap="cursor",
+    spikecolor="#E5E7EB",
+    spikethickness=1,
+    spikedash="dot"
+)
+fig.update_xaxes(**spike_style)
+
 fig.update_layout(
-    height=780,
+    height=760,
     template="plotly_dark",
     hovermode="x unified",
-    margin=dict(l=10, r=10, t=45, b=10),
+    margin=dict(l=10, r=10, t=40, b=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 fig.update_yaxes(type="log", row=1, col=1)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
-fig.update_yaxes(tickvals=[0, 1, 2], ticktext=["0:대기", "1:저평가", "2:변곡"], range=[0, 2.3], row=3, col=1)
+fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -320,7 +352,7 @@ tbl["괴리율"] = np.where(
 )
 tbl["괴리율"] = [f"{x:+.1f}%" if pd.notna(x) else "-" for x in tbl["괴리율"]]
 tbl["STH-SOPR"] = tbl["sth_sopr"].map(lambda x: f"{x:.3f}" if pd.notna(x) else "지연/없음")
-tbl["신호등"] = tbl["signal_level"].map({2: "🟢 변곡", 1: "🟡 저평가", 0: "⚪ 대기"})
+tbl["신호등"] = tbl["signal_text"]
 
 st.dataframe(
     tbl[["날짜", "출처", "BTC ($)", "LTH 실현가 ($)", "괴리율", "STH-SOPR", "신호등"]],

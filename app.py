@@ -418,6 +418,8 @@ fig.update_layout(
     xaxis3=dict(
         range=x_range,
         autorange=False,
+        tickformat="%Y-%m-%d",
+        nticks=10,
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",

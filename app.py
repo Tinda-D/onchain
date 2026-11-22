@@ -136,7 +136,6 @@ today_utc = pd.Timestamp(datetime.now(timezone.utc).date())
 if use_manual:
     latest_known_btc = live_btc if live_btc else combined["btc_price"].dropna().iloc[-1]
     latest_known_lth = manual_lth if manual_lth > 0 else combined["lth_rp_plot"].dropna().iloc[-1]
-    latest_known_sopr = manual_sopr if manual_sopr > 0 else np.nan
 
     new_row = {
         "date": today_utc,
@@ -168,7 +167,7 @@ sopr_lag_days = max(0, (today_utc - last_sopr_date).days)
 current_btc = live_btc if live_btc else combined["btc_price"].dropna().iloc[-1]
 gap_pct = ((current_btc - latest_lth_val) / latest_lth_val) * 100
 
-# 9. 통합 신호등 판정 로직 (2: 2일 연속 >=1.0 회복 변곡, 1: 저평가 진입, 0: 대기)
+# 9. 통합 신호등 판정 로직
 def compute_signal_level(price, lth, sopr, prev_sopr, prev2_sopr):
     if pd.isna(price) or pd.isna(lth):
         return 0
@@ -286,13 +285,13 @@ fig = make_subplots(
 fig.add_trace(go.Scatter(
     x=view_df["date"], y=view_df["btc_price"],
     name="BTC 시장가", line=dict(color="#F7931A", width=2),
-    hovertemplate="%{x|%Y-%m-%d} | BTC: $%{y:,.0f}<extra></extra>"
+    hovertemplate="BTC: $%{y:,.0f}<extra></extra>"
 ), row=1, col=1)
 
 fig.add_trace(go.Scatter(
     x=view_df["date"], y=view_df["lth_rp_plot"],
     name="LTH 실현가", line=dict(color="#00D2FF", width=2),
-    hovertemplate="%{x|%Y-%m-%d} | LTH 실현가: $%{y:,.0f}<extra></extra>"
+    hovertemplate="LTH 실현가: $%{y:,.0f}<extra></extra>"
 ), row=1, col=1)
 
 # 저평가 구간(현물가 < LTH 실현가) 음영 표시
@@ -311,21 +310,6 @@ for _, grp in view_df[under_mask].groupby(seg_id):
         ), row=1, col=1)
         first_under = False
 
-# 반감기 세로선 및 라벨
-for h_date_str, h_label in HALVINGS:
-    h_ts = pd.Timestamp(h_date_str)
-    if cutoff <= h_ts <= max_view_date:
-        fig.add_vline(
-            x=h_ts.timestamp() * 1000,
-            line_dash="dot", line_color="#FACC15", line_width=1.4,
-            row=1, col=1
-        )
-        fig.add_annotation(
-            x=h_ts, y=1.0, yref="y domain",
-            text=h_label, showarrow=False,
-            yshift=10, font=dict(size=10, color="#FACC15")
-        )
-
 # --- 2단: STH-SOPR ---
 sopr_min_y = min(0.65, float(view_df["sth_sopr"].min()) * 0.95) if view_df["sth_sopr"].notna().any() else 0.65
 sopr_max_y = max(1.35, float(view_df["sth_sopr"].max()) * 1.05) if view_df["sth_sopr"].notna().any() else 1.35
@@ -343,7 +327,7 @@ fig.add_trace(go.Scatter(
     fill="tonexty",
     fillcolor="rgba(239, 68, 68, 0.10)",
     connectgaps=False,
-    hovertemplate="%{x|%Y-%m-%d} | STH-SOPR: %{y:.3f}<extra></extra>"
+    hovertemplate="STH-SOPR: %{y:.3f}<extra></extra>"
 ), row=2, col=1)
 
 fig.add_hline(y=1.0, line_dash="dash", line_color="#9CA3AF", line_width=1.2, row=2, col=1)
@@ -358,29 +342,44 @@ fig.add_trace(go.Bar(
     name="신호등",
     marker=dict(color=bar_colors, line=dict(width=0)),
     customdata=view_df["signal_text"],
-    hovertemplate="%{x|%Y-%m-%d} | %{customdata}<extra></extra>"
+    hovertemplate="%{customdata}<extra></extra>"
 ), row=3, col=1)
 
-# 3단 전체 관통 수직 점선 동기화
-common_xaxis = dict(
-    showspikes=True,
-    spikemode="across",
-    spikesnap="data",
-    spikecolor="#F8FAFC",
-    spikethickness=1.2,
-    spikedash="dot"
-)
-fig.update_xaxes(**common_xaxis)
-fig.update_xaxes(matches="x", row=1, col=1)
-fig.update_xaxes(matches="x", row=2, col=1)
-fig.update_xaxes(matches="x", row=3, col=1)
+# [핵심 수정] 모든 트레이스를 맨 아래 x3 단일 X축으로 바인딩하여 3단 전체 관통 수직 점선 구현
+fig.update_traces(xaxis="x3")
+
+# 반감기 세로선 및 라벨 (단일 X축 x3 기준으로 추가)
+for h_date_str, h_label in HALVINGS:
+    h_ts = pd.Timestamp(h_date_str)
+    if cutoff <= h_ts <= max_view_date:
+        fig.add_shape(
+            type="line",
+            x0=h_ts, x1=h_ts,
+            y0=0, y1=1,
+            xref="x3", yref="y domain",
+            line=dict(color="#FACC15", width=1.4, dash="dot")
+        )
+        fig.add_annotation(
+            x=h_ts, y=1.0,
+            xref="x3", yref="y domain",
+            text=h_label, showarrow=False,
+            yshift=10, font=dict(size=10, color="#FACC15")
+        )
 
 fig.update_layout(
     height=770,
     template="plotly_dark",
-    hovermode="x",
+    hovermode="x unified",
     margin=dict(l=10, r=10, t=45, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    xaxis3=dict(
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikecolor="#F8FAFC",
+        spikethickness=1.2,
+        spikedash="dot"
+    )
 )
 fig.update_yaxes(type="log", row=1, col=1)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)

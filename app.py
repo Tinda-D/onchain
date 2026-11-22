@@ -16,12 +16,14 @@ st.set_page_config(
 st.title("₿ 비트코인 온체인 바닥 대시보드")
 st.caption("공간 조건: 현물가 < LTH 실현가(저평가)  |  모멘텀 조건: STH-SOPR < 1.0 이후 2일 연속 1.0 이상 회복(변곡)")
 
-# 반감기 기준일 정의
+# 반감기 기준일 정의 (과거 확정일 + 2028년 4월 예상일)
 HALVINGS = [
-    ("2016-07-09", "반감기 2016"),
-    ("2020-05-11", "반감기 2020"),
-    ("2024-04-20", "반감기 2024"),
+    ("2016-07-09", "반감기 2016", False),
+    ("2020-05-11", "반감기 2020", False),
+    ("2024-04-20", "반감기 2024", False),
+    ("2028-04-17", "다음 반감기(2028 예상)", True),
 ]
+NEXT_HALVING_DATE = pd.Timestamp("2028-04-17")
 
 # 2. 사이드바: 토큰, 기간 선택, 바로가기 링크 및 수동 최신화 입력
 default_token = st.secrets.get("BGEOMETRICS_TOKEN", "") if hasattr(st, "secrets") else ""
@@ -34,6 +36,12 @@ with st.sidebar:
         "조회 기간 선택",
         ["전체 (2015~현재)", "최근 4년", "최근 1년", "최근 6개월"],
         index=0
+    )
+
+    expand_next_halving = st.toggle(
+        "다음 반감기(2028 예상)까지 차트 확장",
+        value=False,
+        help="켜면 차트 오른쪽 끝을 2028년 4월 예상 반감기 시점까지 넓혀 표시합니다."
     )
 
     st.divider()
@@ -261,7 +269,7 @@ if sopr_lag_days >= 3 and not (use_manual and manual_sopr > 0):
         f"사이드바 링크로 확인 후 **수동 최신화 입력**을 활용하세요."
     )
 
-# 11. 기간 필터 적용
+# 11. 기간 필터 및 다음 반감기 확장 범위 설정
 if period_option == "최근 6개월":
     cutoff = today_utc - pd.DateOffset(months=6)
 elif period_option == "최근 1년":
@@ -273,11 +281,12 @@ else:
 
 view_df = combined[combined["date"] >= cutoff].copy().reset_index(drop=True)
 min_view_date = view_df["date"].min() if not view_df.empty else cutoff
-max_view_date = view_df["date"].max() if not view_df.empty else today_utc
+data_max_date = view_df["date"].max() if not view_df.empty else today_utc
+display_end_date = max(data_max_date, NEXT_HALVING_DATE) if expand_next_halving else data_max_date
 
-# X축 좌우 여백 살짝 부여
-x_pad = max(pd.Timedelta(days=2), (max_view_date - min_view_date) * 0.015)
-x_range = [min_view_date - x_pad, max_view_date + x_pad]
+x_pad_left = max(pd.Timedelta(days=2), (display_end_date - min_view_date) * 0.015)
+x_pad_right = max(pd.Timedelta(days=15), (display_end_date - min_view_date) * 0.025)
+x_range = [min_view_date - x_pad_left, display_end_date + x_pad_right]
 
 # 12. 3단 통합 시각화
 fig = make_subplots(
@@ -354,21 +363,24 @@ fig.add_trace(go.Bar(
 fig.update_traces(xaxis="x3")
 
 # 반감기 세로선 및 라벨 (x3 기준)
-for h_date_str, h_label in HALVINGS:
+for h_date_str, h_label, is_future in HALVINGS:
+    if is_future and not expand_next_halving:
+        continue
     h_ts = pd.Timestamp(h_date_str)
-    if min_view_date <= h_ts <= max_view_date:
+    if min_view_date <= h_ts <= display_end_date:
+        line_color = "#38BDF8" if is_future else "#FACC15"
         fig.add_shape(
             type="line",
             x0=h_ts, x1=h_ts,
             y0=0, y1=1,
             xref="x3", yref="y domain",
-            line=dict(color="#FACC15", width=1.4, dash="dot")
+            line=dict(color=line_color, width=1.4, dash="dot")
         )
         fig.add_annotation(
             x=h_ts, y=1.0,
             xref="x3", yref="y domain",
             text=h_label, showarrow=False,
-            yshift=10, font=dict(size=10, color="#FACC15")
+            yshift=10, font=dict(size=10, color=line_color)
         )
 
 fig.update_layout(
@@ -394,7 +406,7 @@ fig.update_yaxes(type="log", row=1, col=1)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
 fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 
-st.plotly_chart(fig, use_container_width=True, key=f"btc_onchain_chart_{period_option}")
+st.plotly_chart(fig, use_container_width=True, key=f"btc_onchain_chart_{period_option}_{expand_next_halving}")
 
 # 13. 하단 최근 데이터 요약 테이블
 st.subheader("📋 최근 데이터 요약 (최근 15건)")

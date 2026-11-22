@@ -42,6 +42,7 @@ with st.sidebar:
 
     st.link_button("📈 Bitbo 온체인 차트 열기", "https://charts.bitbo.io/", use_container_width=True)
     st.link_button("💰 LTH Realized Price 차트", "https://charts.bitbo.io/lth-realized-price/", use_container_width=True)
+    st.link_button("📉 STH-SOPR 차트", "https://charts.bitbo.io/sth-sopr/", use_container_width=True)
 
     use_manual = st.checkbox("수동 최신값 적용하기", value=False)
     manual_lth = st.number_input("최신 LTH 실현가 ($)", min_value=0.0, value=0.0, step=100.0)
@@ -360,7 +361,7 @@ fig.add_trace(go.Bar(
     hovertemplate="%{x|%Y-%m-%d} | %{customdata}<extra></extra>"
 ), row=3, col=1)
 
-# 3단 전체 관통 수직 점선 동기화 (hovermode="x" + 각 X축 스파이크 활성)
+# 3단 전체 관통 수직 점선 동기화
 common_xaxis = dict(
     showspikes=True,
     spikemode="across",

@@ -217,66 +217,28 @@ combined["signal_short"] = combined["signal_level"].map({
 })
 
 current_signal = compute_signal_level(current_btc, latest_lth_val, latest_sopr_val, prev_sopr_val, prev2_sopr_val)
+sig_title = {2: "🟢 변곡 포착", 1: "🟡 저평가 진입", 0: "⚪ 대기 구간"}[current_signal]
 
-# 10. 상단 히어로 헤더 + 데이터 기준일 스트립 + KPI
-sig_meta = {
-    2: ("🟢 변곡 포착", "#22C55E", "rgba(34, 197, 94, 0.14)"),
-    1: ("🟡 저평가 진입", "#EAB308", "rgba(234, 179, 8, 0.14)"),
-    0: ("⚪ 대기 구간", "#9CA3AF", "rgba(156, 163, 175, 0.12)")
-}
-sig_title, sig_accent, sig_bg = sig_meta[current_signal]
+# 10. 상단 헤더 + 데이터 기준일 안내 + KPI
+with st.container(border=True):
+    top_l, top_r = st.columns([3, 1])
+    with top_l:
+        st.markdown("### ₿ 비트코인 온체인 바닥 대시보드")
+        st.caption("공간 조건: 현물가 < LTH 실현가(저평가)  |  모멘텀 조건: STH-SOPR < 1.0 이후 2일 연속 1.0 이상 회복(변곡)")
+    with top_r:
+        st.metric("현재 신호", sig_title)
 
-lth_date_note = (
-    f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days}, 차트선 ~{last_lth_plot_date.strftime('%m/%d')})"
-    if last_lth_plot_date != last_lth_date
-    else f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days})"
-)
-
-st.markdown(
-    f"""
-    <div style="
-        background: linear-gradient(135deg, rgba(24,28,38,0.95) 0%, rgba(15,23,42,0.95) 100%);
-        border: 1px solid rgba(148,163,184,0.2);
-        border-left: 5px solid {sig_accent};
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
-    ">
-        <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px;">
-            <div>
-                <div style="font-size:1.45rem; font-weight:700; color:#F8FAFC; line-height:1.25;">
-                    ₿ 비트코인 온체인 바닥 대시보드
-                </div>
-                <div style="font-size:0.88rem; color:#CBD5E1; margin-top:4px;">
-                    현물가 &lt; LTH 실현가(저평가 공간) · STH-SOPR &lt; 1.0 이후 2일 연속 1.0 이상 회복(변곡 모멘텀)
-                </div>
-            </div>
-            <div style="
-                background:{sig_bg};
-                border:1px solid {sig_accent};
-                color:#F8FAFC;
-                padding:6px 14px;
-                border-radius:999px;
-                font-weight:700;
-                font-size:0.95rem;
-            ">
-                현재 신호: {sig_title}
-            </div>
-        </div>
-        <div style="
-            display:flex; flex-wrap:wrap; gap:12px;
-            margin-top:12px; padding-top:10px;
-            border-top:1px solid rgba(148,163,184,0.15);
-            font-size:0.82rem; color:#94A3B8;
-        ">
-            <span>⏱️ <b>현물가:</b> {"실시간 시세(1분 갱신)" if btc_is_live else f"{today_utc.strftime('%Y-%m-%d')} 기준"}</span>
-            <span>📌 <b>LTH 실현가 원본 기준일:</b> {lth_date_note}</span>
-            <span>📌 <b>STH-SOPR 기준일:</b> {last_sopr_date.strftime('%Y-%m-%d')} (D-{sopr_lag_days})</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+    lth_date_str = (
+        f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days}, 선 ~{last_lth_plot_date.strftime('%m/%d')})"
+        if last_lth_plot_date != last_lth_date
+        else f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days})"
+    )
+    btc_date_str = "실시간 시세(1분 갱신)" if btc_is_live else f"{today_utc.strftime('%Y-%m-%d')} 기준"
+    st.caption(
+        f"⏱️ **현물가:** {btc_date_str}  ·  "
+        f"📌 **LTH 실현가 원본 기준일:** {lth_date_str}  ·  "
+        f"📌 **STH-SOPR 기준일:** {last_sopr_date.strftime('%Y-%m-%d')} (D-{sopr_lag_days})"
+    )
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
@@ -464,17 +426,7 @@ fig.update_layout(
         spikedash="dot"
     )
 )
-fig.update_yaxes(
-    type="log",
-    showspikes=True,
-    spikemode="toaxis",
-    spikesnap="cursor",
-    spikeformat="$,.0f",
-    spikecolor="#F59E0B",
-    spikethickness=1,
-    spikedash="dash",
-    row=1, col=1
-)
+fig.update_yaxes(type="log", row=1, col=1)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
 fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 

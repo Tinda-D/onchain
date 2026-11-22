@@ -155,11 +155,13 @@ if use_manual:
     combined["btc_price"] = combined["btc_price"].ffill()
     combined["lth_rp_plot"] = combined["lth_rp_plot"].ffill()
 
-# 8. 각 지표의 실제 마지막 기준일 및 지연일 계산
+# 8. 각 지표의 실제 마지막 기준일 및 차트 반영 끝일 계산
 lth_valid = combined.dropna(subset=["lth_rp"])
+lth_plot_valid = combined.dropna(subset=["lth_rp_plot"])
 sopr_valid = combined.dropna(subset=["sth_sopr"])
 
 last_lth_date = lth_valid["date"].iloc[-1] if not lth_valid.empty else today_utc
+last_lth_plot_date = lth_plot_valid["date"].iloc[-1] if not lth_plot_valid.empty else last_lth_date
 latest_lth_val = lth_valid["lth_rp"].iloc[-1] if not lth_valid.empty else combined["lth_rp_plot"].iloc[-1]
 lth_lag_days = max(0, (today_utc - last_lth_date).days)
 
@@ -224,6 +226,12 @@ sig_meta = {
 }
 sig_title, sig_accent, sig_bg = sig_meta[current_signal]
 
+lth_date_note = (
+    f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days}, 차트선 ~{last_lth_plot_date.strftime('%m/%d')})"
+    if last_lth_plot_date != last_lth_date
+    else f"{last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days})"
+)
+
 st.markdown(
     f"""
     <div style="
@@ -262,7 +270,7 @@ st.markdown(
             font-size:0.82rem; color:#94A3B8;
         ">
             <span>⏱️ <b>현물가:</b> {"실시간 시세(1분 갱신)" if btc_is_live else f"{today_utc.strftime('%Y-%m-%d')} 기준"}</span>
-            <span>📌 <b>LTH 실현가 기준일:</b> {last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days})</span>
+            <span>📌 <b>LTH 실현가 원본 기준일:</b> {lth_date_note}</span>
             <span>📌 <b>STH-SOPR 기준일:</b> {last_sopr_date.strftime('%Y-%m-%d')} (D-{sopr_lag_days})</span>
         </div>
     </div>
@@ -281,12 +289,12 @@ with c2:
     st.metric(
         "LTH 실현 가격",
         f"${latest_lth_val:,.0f}",
-        f"괴리 {gap_pct:+.1f}% · {last_lth_date.strftime('%Y-%m-%d')}",
+        f"괴리 {gap_pct:+.1f}% · 원본 {last_lth_date.strftime('%m/%d')}",
         delta_color="inverse" if current_btc < latest_lth_val else "normal"
     )
 with c3:
     if pd.isna(latest_sopr_val):
-        st.metric("STH-SOPR", "데이터 없음", f"기준일 미확인")
+        st.metric("STH-SOPR", "데이터 없음", "기준일 미확인")
     else:
         if (not pd.isna(prev_sopr_val)) and (latest_sopr_val >= 1.0 and prev_sopr_val >= 1.0):
             sopr_state = "2일 연속 ≥1.0"
@@ -319,7 +327,7 @@ with st.expander("📖 통합 신호등 용어 및 판독 기준 보기 (대기 
 if (lth_lag_days >= 2 or sopr_lag_days >= 2) and not use_manual:
     st.warning(
         f"⚠️ **온체인 데이터 기준일 안내:** 온체인 지표는 일별 집계 특성상 실시간 시세와 시차가 있습니다. "
-        f"(LTH 실현가: `{last_lth_date.strftime('%Y-%m-%d')}` / STH-SOPR: `{last_sopr_date.strftime('%Y-%m-%d')}`) "
+        f"(LTH 실현가 원본: `{last_lth_date.strftime('%Y-%m-%d')}` / STH-SOPR: `{last_sopr_date.strftime('%Y-%m-%d')}`) "
         f"사이드바 링크로 최신 값을 확인한 뒤 **수동 최신값 적용하기**를 사용할 수 있습니다."
     )
 
@@ -461,6 +469,7 @@ fig.update_yaxes(
     showspikes=True,
     spikemode="toaxis",
     spikesnap="cursor",
+    spikeformat="$,.0f",
     spikecolor="#F59E0B",
     spikethickness=1,
     spikedash="dash",

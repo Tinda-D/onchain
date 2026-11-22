@@ -41,7 +41,7 @@ with st.sidebar:
     st.caption("페이지에서 최신 수치를 확인한 뒤 아래에 입력하세요.")
 
     st.link_button("📈 Bitbo 온체인 차트 열기", "https://charts.bitbo.io/", use_container_width=True)
-    st.link_button("💰 LTH Realized Price 차트", "https://charts.bitbo.io/realized-price/", use_container_width=True)
+    st.link_button("💰 LTH Realized Price 차트", "https://charts.bitbo.io/lth-realized-price/", use_container_width=True)
 
     use_manual = st.checkbox("수동 최신값 적용하기", value=False)
     manual_lth = st.number_input("최신 LTH 실현가 ($)", min_value=0.0, value=0.0, step=100.0)
@@ -172,7 +172,6 @@ def compute_signal_level(price, lth, sopr, prev_sopr, prev2_sopr):
     if pd.isna(price) or pd.isna(lth):
         return 0
     is_undervalued = price < lth
-    # 직전일(prev2)은 1.0 미만이었고, 최근 2일(prev, sopr) 연속 1.0 이상 유지 시 변곡 판정
     two_day_recovery = (
         (not pd.isna(sopr)) and (sopr >= 1.0) and
         (not pd.isna(prev_sopr)) and (prev_sopr >= 1.0) and
@@ -285,12 +284,14 @@ fig = make_subplots(
 # --- 1단: BTC 가격 & LTH 실현가 ---
 fig.add_trace(go.Scatter(
     x=view_df["date"], y=view_df["btc_price"],
-    name="BTC 시장가", line=dict(color="#F7931A", width=2)
+    name="BTC 시장가", line=dict(color="#F7931A", width=2),
+    hovertemplate="%{x|%Y-%m-%d} | BTC: $%{y:,.0f}<extra></extra>"
 ), row=1, col=1)
 
 fig.add_trace(go.Scatter(
     x=view_df["date"], y=view_df["lth_rp_plot"],
-    name="LTH 실현가", line=dict(color="#00D2FF", width=2)
+    name="LTH 실현가", line=dict(color="#00D2FF", width=2),
+    hovertemplate="%{x|%Y-%m-%d} | LTH 실현가: $%{y:,.0f}<extra></extra>"
 ), row=1, col=1)
 
 # 저평가 구간(현물가 < LTH 실현가) 음영 표시
@@ -309,7 +310,7 @@ for _, grp in view_df[under_mask].groupby(seg_id):
         ), row=1, col=1)
         first_under = False
 
-# 반감기 세로선 및 라벨 (현재 선택 기간 내 날짜만 표시)
+# 반감기 세로선 및 라벨
 for h_date_str, h_label in HALVINGS:
     h_ts = pd.Timestamp(h_date_str)
     if cutoff <= h_ts <= max_view_date:
@@ -340,7 +341,8 @@ fig.add_trace(go.Scatter(
     line=dict(color="#C084FC", width=1.9),
     fill="tonexty",
     fillcolor="rgba(239, 68, 68, 0.10)",
-    connectgaps=False
+    connectgaps=False,
+    hovertemplate="%{x|%Y-%m-%d} | STH-SOPR: %{y:.3f}<extra></extra>"
 ), row=2, col=1)
 
 fig.add_hline(y=1.0, line_dash="dash", line_color="#9CA3AF", line_width=1.2, row=2, col=1)
@@ -355,25 +357,27 @@ fig.add_trace(go.Bar(
     name="신호등",
     marker=dict(color=bar_colors, line=dict(width=0)),
     customdata=view_df["signal_text"],
-    hovertemplate="%{customdata}<extra></extra>"
+    hovertemplate="%{x|%Y-%m-%d} | %{customdata}<extra></extra>"
 ), row=3, col=1)
 
-# 3단 X축 동기화 및 수직 점선 정렬
-fig.update_xaxes(
+# 3단 전체 관통 수직 점선 동기화 (hovermode="x" + 각 X축 스파이크 활성)
+common_xaxis = dict(
     showspikes=True,
     spikemode="across",
     spikesnap="data",
-    spikecolor="#E5E7EB",
-    spikethickness=1,
+    spikecolor="#F8FAFC",
+    spikethickness=1.2,
     spikedash="dot"
 )
+fig.update_xaxes(**common_xaxis)
+fig.update_xaxes(matches="x", row=1, col=1)
 fig.update_xaxes(matches="x", row=2, col=1)
 fig.update_xaxes(matches="x", row=3, col=1)
 
 fig.update_layout(
     height=770,
     template="plotly_dark",
-    hovermode="x unified",
+    hovermode="x",
     margin=dict(l=10, r=10, t=45, b=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )

@@ -272,11 +272,16 @@ else:
     cutoff = combined["date"].min()
 
 view_df = combined[combined["date"] >= cutoff].copy().reset_index(drop=True)
+min_view_date = view_df["date"].min() if not view_df.empty else cutoff
 max_view_date = view_df["date"].max() if not view_df.empty else today_utc
+
+# X축 좌우 여백 살짝 부여
+x_pad = max(pd.Timedelta(days=2), (max_view_date - min_view_date) * 0.015)
+x_range = [min_view_date - x_pad, max_view_date + x_pad]
 
 # 12. 3단 통합 시각화
 fig = make_subplots(
-    rows=3, cols=1, shared_xaxes=True,
+    rows=3, cols=1, shared_xaxes=False,
     vertical_spacing=0.06, row_heights=[0.52, 0.30, 0.18],
     subplot_titles=("BTC / LTH 실현가", "STH-SOPR", "통합 신호등 (대기 · 저평가 · 변곡)")
 )
@@ -345,13 +350,13 @@ fig.add_trace(go.Bar(
     hovertemplate="%{customdata}<extra></extra>"
 ), row=3, col=1)
 
-# [핵심 수정] 모든 트레이스를 맨 아래 x3 단일 X축으로 바인딩하여 3단 전체 관통 수직 점선 구현
+# 모든 트레이스를 단일 X축(x3)으로 바인딩하여 3단 관통 수직 점선 구현
 fig.update_traces(xaxis="x3")
 
-# 반감기 세로선 및 라벨 (단일 X축 x3 기준으로 추가)
+# 반감기 세로선 및 라벨 (x3 기준)
 for h_date_str, h_label in HALVINGS:
     h_ts = pd.Timestamp(h_date_str)
-    if cutoff <= h_ts <= max_view_date:
+    if min_view_date <= h_ts <= max_view_date:
         fig.add_shape(
             type="line",
             x0=h_ts, x1=h_ts,
@@ -372,7 +377,11 @@ fig.update_layout(
     hovermode="x unified",
     margin=dict(l=10, r=10, t=45, b=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    xaxis=dict(visible=False),
+    xaxis2=dict(visible=False),
     xaxis3=dict(
+        range=x_range,
+        autorange=False,
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
@@ -385,7 +394,7 @@ fig.update_yaxes(type="log", row=1, col=1)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
 fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True, key=f"btc_onchain_chart_{period_option}")
 
 # 13. 하단 최근 데이터 요약 테이블
 st.subheader("📋 최근 데이터 요약 (최근 15건)")

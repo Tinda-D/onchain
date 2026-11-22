@@ -426,7 +426,16 @@ fig.update_layout(
         spikedash="dot"
     )
 )
-fig.update_yaxes(type="log", row=1, col=1)
+fig.update_yaxes(
+    type="log",
+    showspikes=True,
+    spikemode="toaxis",
+    spikesnap="cursor",
+    spikecolor="#F59E0B",
+    spikethickness=1.2,
+    spikedash="dash",
+    row=1, col=1
+)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
 fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 

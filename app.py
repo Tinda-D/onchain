@@ -13,9 +13,6 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("₿ 비트코인 온체인 바닥 대시보드")
-st.caption("공간 조건: 현물가 < LTH 실현가(저평가)  |  모멘텀 조건: STH-SOPR < 1.0 이후 2일 연속 1.0 이상 회복(변곡)")
-
 # 반감기 기준일 정의 (과거 확정일 + 2028년 4월 예상일)
 HALVINGS = [
     ("2016-07-09", "반감기 2016", False),
@@ -173,6 +170,7 @@ prev2_sopr_val = sopr_valid["sth_sopr"].iloc[-3] if len(sopr_valid) > 2 else np.
 sopr_lag_days = max(0, (today_utc - last_sopr_date).days)
 
 current_btc = live_btc if live_btc else combined["btc_price"].dropna().iloc[-1]
+btc_is_live = live_btc is not None
 gap_pct = ((current_btc - latest_lth_val) / latest_lth_val) * 100
 
 # 9. 통합 신호등 판정 로직
@@ -218,35 +216,91 @@ combined["signal_short"] = combined["signal_level"].map({
 
 current_signal = compute_signal_level(current_btc, latest_lth_val, latest_sopr_val, prev_sopr_val, prev2_sopr_val)
 
-# 10. 상단 KPI, 상태 설명 및 접이식 기준 가이드
+# 10. 상단 히어로 헤더 + 데이터 기준일 스트립 + KPI
+sig_meta = {
+    2: ("🟢 변곡 포착", "#22C55E", "rgba(34, 197, 94, 0.14)"),
+    1: ("🟡 저평가 진입", "#EAB308", "rgba(234, 179, 8, 0.14)"),
+    0: ("⚪ 대기 구간", "#9CA3AF", "rgba(156, 163, 175, 0.12)")
+}
+sig_title, sig_accent, sig_bg = sig_meta[current_signal]
+
+st.markdown(
+    f"""
+    <div style="
+        background: linear-gradient(135deg, rgba(24,28,38,0.95) 0%, rgba(15,23,42,0.95) 100%);
+        border: 1px solid rgba(148,163,184,0.2);
+        border-left: 5px solid {sig_accent};
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
+    ">
+        <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px;">
+            <div>
+                <div style="font-size:1.45rem; font-weight:700; color:#F8FAFC; line-height:1.25;">
+                    ₿ 비트코인 온체인 바닥 대시보드
+                </div>
+                <div style="font-size:0.88rem; color:#CBD5E1; margin-top:4px;">
+                    현물가 &lt; LTH 실현가(저평가 공간) · STH-SOPR &lt; 1.0 이후 2일 연속 1.0 이상 회복(변곡 모멘텀)
+                </div>
+            </div>
+            <div style="
+                background:{sig_bg};
+                border:1px solid {sig_accent};
+                color:#F8FAFC;
+                padding:6px 14px;
+                border-radius:999px;
+                font-weight:700;
+                font-size:0.95rem;
+            ">
+                현재 신호: {sig_title}
+            </div>
+        </div>
+        <div style="
+            display:flex; flex-wrap:wrap; gap:12px;
+            margin-top:12px; padding-top:10px;
+            border-top:1px solid rgba(148,163,184,0.15);
+            font-size:0.82rem; color:#94A3B8;
+        ">
+            <span>⏱️ <b>현물가:</b> {"실시간 시세(1분 갱신)" if btc_is_live else f"{today_utc.strftime('%Y-%m-%d')} 기준"}</span>
+            <span>📌 <b>LTH 실현가 기준일:</b> {last_lth_date.strftime('%Y-%m-%d')} (D-{lth_lag_days})</span>
+            <span>📌 <b>STH-SOPR 기준일:</b> {last_sopr_date.strftime('%Y-%m-%d')} (D-{sopr_lag_days})</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.metric("현재 BTC 가격", f"${current_btc:,.0f}")
+    st.metric(
+        "현재 BTC 가격",
+        f"${current_btc:,.0f}",
+        "실시간(Live)" if btc_is_live else "최근 종가"
+    )
 with c2:
     st.metric(
         "LTH 실현 가격",
         f"${latest_lth_val:,.0f}",
-        f"{gap_pct:+.1f}% ({last_lth_date.strftime('%m/%d')}, D-{lth_lag_days})",
+        f"괴리 {gap_pct:+.1f}% · {last_lth_date.strftime('%Y-%m-%d')}",
         delta_color="inverse" if current_btc < latest_lth_val else "normal"
     )
 with c3:
     if pd.isna(latest_sopr_val):
-        st.metric("STH-SOPR", "데이터 없음")
+        st.metric("STH-SOPR", "데이터 없음", f"기준일 미확인")
     else:
         if (not pd.isna(prev_sopr_val)) and (latest_sopr_val >= 1.0 and prev_sopr_val >= 1.0):
             sopr_state = "2일 연속 ≥1.0"
         elif latest_sopr_val >= 1.0:
-            sopr_state = "1.0 첫 돌파(확인중)"
+            sopr_state = "1.0 첫 돌파"
         else:
             sopr_state = "손실(<1.0)"
         st.metric(
             "STH-SOPR",
             f"{latest_sopr_val:.3f}",
-            f"{sopr_state} ({last_sopr_date.strftime('%m/%d')}, D-{sopr_lag_days})"
+            f"{sopr_state} · {last_sopr_date.strftime('%Y-%m-%d')}"
         )
 with c4:
-    sig_label = {2: "🟢 변곡 포착", 1: "🟡 저평가 진입", 0: "⚪ 대기"}[current_signal]
-    st.metric("통합 신호등", sig_label)
+    st.metric("통합 신호등", sig_title, f"LTH D-{lth_lag_days} / SOPR D-{sopr_lag_days}")
 
 if current_signal == 2:
     st.success("🟢 **변곡(2일 연속 회복 확인):** 현물가가 LTH 실현가 아래에 있고, STH-SOPR이 1.0 미만 구간을 지나 **2일 연속 1.0 이상**을 유지한 시점입니다.")
@@ -262,11 +316,11 @@ with st.expander("📖 통합 신호등 용어 및 판독 기준 보기 (대기 
     - **🟢 변곡 (2단계):** **현물가 < LTH 실현가** 상태에서 **STH-SOPR이 `1.0` 미만 구간을 거친 뒤 2일 연속 `1.0` 이상**을 기록한 구간입니다. 하루짜리 반등 착시를 줄이기 위해 2일 연속 안착 기준으로 판정합니다.
     """)
 
-if sopr_lag_days >= 3 and not (use_manual and manual_sopr > 0):
+if (lth_lag_days >= 2 or sopr_lag_days >= 2) and not use_manual:
     st.warning(
-        f"⚠️ **시차 안내:** LTH 실현가는 `{last_lth_date.strftime('%Y-%m-%d')}` 기준이나 "
-        f"STH-SOPR은 `{last_sopr_date.strftime('%Y-%m-%d')}`({sopr_lag_days}일 전)까지 반영되어 있습니다. "
-        f"사이드바 링크로 확인 후 **수동 최신화 입력**을 활용하세요."
+        f"⚠️ **온체인 데이터 기준일 안내:** 온체인 지표는 일별 집계 특성상 실시간 시세와 시차가 있습니다. "
+        f"(LTH 실현가: `{last_lth_date.strftime('%Y-%m-%d')}` / STH-SOPR: `{last_sopr_date.strftime('%Y-%m-%d')}`) "
+        f"사이드바 링크로 최신 값을 확인한 뒤 **수동 최신값 적용하기**를 사용할 수 있습니다."
     )
 
 # 11. 기간 필터 및 다음 반감기 확장 범위 설정
@@ -402,7 +456,16 @@ fig.update_layout(
         spikedash="dot"
     )
 )
-fig.update_yaxes(type="log", row=1, col=1)
+fig.update_yaxes(
+    type="log",
+    showspikes=True,
+    spikemode="toaxis",
+    spikesnap="cursor",
+    spikecolor="#F59E0B",
+    spikethickness=1,
+    spikedash="dash",
+    row=1, col=1
+)
 fig.update_yaxes(range=[sopr_min_y, sopr_max_y], row=2, col=1)
 fig.update_yaxes(showticklabels=False, range=[0, 1.2], fixedrange=True, row=3, col=1)
 
